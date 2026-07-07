@@ -1,0 +1,42 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>ボートレースAI予想</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <header>
+    <h1>🚤 ボートレースAI予想</h1>
+    <div class="header-info">
+      <span id="today-date"></span>
+      <button id="stats-btn" title="確定レースの予想成績と回収率を表示">📊 回収率</button>
+      <button id="refresh-btn" title="最新データを再取得">🔄 更新</button>
+    </div>
+  </header>
+
+  <main>
+    <div id="status" class="status">データ読み込み中…</div>
+
+    <!-- 場一覧 -->
+    <nav id="stadium-tabs" class="stadium-tabs"></nav>
+
+    <!-- レース一覧 -->
+    <section id="race-list" class="race-list"></section>
+
+    <!-- レース詳細・予想 -->
+    <section id="race-detail" class="race-detail hidden"></section>
+
+    <!-- 予想成績・回収率 -->
+    <section id="stats-view" class="race-detail hidden"></section>
+  </main>
+
+  <footer>
+    <p>データ出典: <a href="https://boatraceopenapi.github.io/" target="_blank" rel="noopener">BoatraceOpenAPI</a>(当日データを随時取得)。
+    本予想は統計に基づく参考情報であり、的中を保証するものではありません。舟券の購入は自己責任・20歳以上で。</p>
+  </footer>
+
+  <script src="app.js"></script>
+</body>
+</html>
