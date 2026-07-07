@@ -266,6 +266,18 @@ function renderStadiumTabs() {
   }
 }
 
+// おすすめ度 (1〜5): 本命の推定勝率と2番手との差から予想の自信度を算出
+function recommendStars(pred) {
+  const p1 = pred.ranked[0].winProb;
+  const gap = p1 - pred.ranked[1].winProb;
+  let s = 1;
+  if (p1 >= 0.25) s++;
+  if (p1 >= 0.35) s++;
+  if (p1 >= 0.45 && gap >= 0.10) s++;
+  if (p1 >= 0.55 && gap >= 0.20) s++;
+  return s;
+}
+
 function renderRaceList(jcd) {
   const list = $('#race-list');
   list.innerHTML = '';
@@ -278,9 +290,12 @@ function renderRaceList(jcd) {
       card.className = 'race-card';
       const time = (race.race_closed_at || '').slice(11, 16);
       const done = findResult(jcd, race.race_number);
+      const pred = predictRace(race, findPreview(jcd, race.race_number));
+      const stars = recommendStars(pred);
       card.innerHTML = `
         <div class="rno">${race.race_number}R</div>
         <div class="rtitle">${race.race_subtitle || race.race_title || ''}</div>
+        <div class="rec rec-${stars}" title="おすすめ度(予想の自信度)">${'★'.repeat(stars)}<span class="star-dim">${'★'.repeat(5 - stars)}</span> ◎${pred.ranked[0].lane}</div>
         <div class="rtime">締切 ${time}${done ? ' <span class="done">結果あり</span>' : ''}</div>`;
       card.onclick = () => renderDetail(race);
       list.appendChild(card);
@@ -290,7 +305,166 @@ function renderRaceList(jcd) {
 function hideDetail() {
   $('#race-detail').classList.add('hidden');
   $('#stats-view').classList.add('hidden');
+  $('#history-view').classList.add('hidden');
   $('#race-list').classList.remove('hidden');
+}
+
+// ===== 買い目履歴 (localStorage に保存・日をまたいで蓄積) =====
+const HISTORY_KEY = 'br_bet_history_v1';
+const archiveResultCache = {}; // 日付 -> 結果配列
+
+function loadHistory() {
+  try { return JSON.parse(localStorage.getItem(HISTORY_KEY)) || []; }
+  catch (e) { return []; }
+}
+function saveHistory(list) { localStorage.setItem(HISTORY_KEY, JSON.stringify(list)); }
+
+function recordBet(race, pred) {
+  const jcd = race.race_stadium_number;
+  const rno = race.race_number;
+  const id = `${race.race_date}_${jcd}_${rno}`;
+  const tickets = [];
+  pred.betGroups.forEach(g => g.combos.forEach(c => tickets.push({ type: g.type, key: comboKey(g.type, c) })));
+  const list = loadHistory().filter(e => e.id !== id); // 同レースは上書き
+  list.push({
+    id, race_date: race.race_date, jcd, rno,
+    predicted: pred.ranked.slice(0, 3).map(x => x.lane).join('-'),
+    tickets,
+    cost: tickets.length * 100,
+    recordedAt: new Date().toISOString(),
+    settled: false, payout: 0, hits: [], actual: null
+  });
+  saveHistory(list);
+}
+
+// 指定日の結果を取得 (当日はメモリ上の results、過去日はアーカイブAPI)
+async function fetchResultsForDate(dateStr) {
+  const today = programs.length ? programs[0].race_date : null;
+  if (dateStr === today) return results;
+  if (archiveResultCache[dateStr]) return archiveResultCache[dateStr];
+  const ymd = dateStr.replace(/-/g, '');
+  try {
+    const res = await fetch(`https://boatraceopenapi.github.io/results/v2/${ymd.slice(0, 4)}/${ymd}.json`);
+    if (!res.ok) throw new Error('HTTP ' + res.status);
+    const data = await res.json();
+    archiveResultCache[dateStr] = data.results || [];
+  } catch (e) {
+    archiveResultCache[dateStr] = [];
+  }
+  return archiveResultCache[dateStr];
+}
+
+// 未確定の履歴に結果を突き合わせて払戻を確定させる
+async function settleHistory() {
+  const list = loadHistory();
+  let changed = false;
+  for (const e of list) {
+    if (e.settled) continue;
+    const dayResults = await fetchResultsForDate(e.race_date);
+    const r = dayResults.find(x => x.race_stadium_number === e.jcd && x.race_number === e.rno);
+    if (!r || !r.payouts || !(r.payouts.trifecta || []).length) continue;
+    let payout = 0;
+    const hits = [];
+    e.tickets.forEach(tk => {
+      const p = payoutFor(r, tk.type, tk.key);
+      if (p > 0) {
+        payout += p;
+        hits.push({ type: tk.type, key: tk.key, payout: p });
+      }
+    });
+    e.settled = true;
+    e.payout = payout;
+    e.hits = hits;
+    e.actual = r.payouts.trifecta[0].combination;
+    changed = true;
+  }
+  if (changed) saveHistory(list);
+  return list;
+}
+
+function renderHistory(list) {
+  $('#race-list').classList.add('hidden');
+  $('#race-detail').classList.add('hidden');
+  $('#stats-view').classList.add('hidden');
+  const view = $('#history-view');
+  view.classList.remove('hidden');
+
+  const yen = n => n.toLocaleString('ja-JP');
+  const entries = [...list].sort((a, z) => z.recordedAt.localeCompare(a.recordedAt));
+
+  if (entries.length === 0) {
+    view.innerHTML = `
+      <div class="detail-header">
+        <h2>📝 買い目履歴</h2>
+        <button class="back-btn" id="history-back-btn">← レース一覧へ</button>
+      </div>
+      <div class="status">まだ記録がありません。レース詳細画面の「📝 この買い目を記録」で保存できます。</div>`;
+    $('#history-back-btn').onclick = hideDetail;
+    return;
+  }
+
+  const settled = entries.filter(e => e.settled);
+  const totalCost = settled.reduce((a, e) => a + e.cost, 0);
+  const totalPayout = settled.reduce((a, e) => a + e.payout, 0);
+  const roi = totalCost > 0 ? (totalPayout / totalCost * 100) : 0;
+  const profit = totalPayout - totalCost;
+
+  const rows = entries.map(e => {
+    const hitsHtml = !e.settled
+      ? '<span class="pending">結果待ち</span>'
+      : (e.hits.length
+        ? e.hits.map(h => `🎯 ${TYPE_LABEL[h.type] || h.type} ${h.key} ${yen(h.payout)}円`).join('<br>')
+        : '不的中');
+    const diff = e.payout - e.cost;
+    return `<tr>
+      <td>${e.race_date.slice(5)}</td>
+      <td class="name">${STADIUMS[e.jcd]} ${e.rno}R</td>
+      <td>${e.predicted}</td>
+      <td>${e.settled ? e.actual : '-'}</td>
+      <td class="name">${hitsHtml}</td>
+      <td>${yen(e.cost)}円</td>
+      <td>${e.settled ? yen(e.payout) + '円' : '-'}</td>
+      <td class="${diff >= 0 ? 'plus' : 'minus'}">${e.settled ? (diff >= 0 ? '+' : '') + yen(diff) + '円' : '-'}</td>
+      <td><button class="del-btn" data-id="${e.id}" title="この記録を削除">🗑</button></td>
+    </tr>`;
+  }).join('');
+
+  view.innerHTML = `
+    <div class="detail-header">
+      <div>
+        <h2>📝 買い目履歴</h2>
+        <div class="sub">記録 ${entries.length} 件(確定 ${settled.length} 件)。確定分のみで回収率を計算しています。</div>
+      </div>
+      <button class="back-btn" id="history-back-btn">← レース一覧へ</button>
+    </div>
+    <div class="stats-summary">
+      <div class="summary-card"><div class="label">回収率</div><div class="value ${roi >= 100 ? 'plus' : 'minus'}">${settled.length ? roi.toFixed(1) + '%' : '-'}</div></div>
+      <div class="summary-card"><div class="label">収支</div><div class="value ${profit >= 0 ? 'plus' : 'minus'}">${settled.length ? (profit >= 0 ? '+' : '') + yen(profit) + '円' : '-'}</div></div>
+      <div class="summary-card"><div class="label">総購入</div><div class="value">${yen(totalCost)}円</div></div>
+      <div class="summary-card"><div class="label">総払戻</div><div class="value">${yen(totalPayout)}円</div></div>
+    </div>
+    <table>
+      <thead><tr><th>日付</th><th>レース</th><th>予想</th><th>結果<br>(3連単)</th><th>的中</th><th>購入</th><th>払戻</th><th>収支</th><th></th></tr></thead>
+      <tbody>${rows}</tbody>
+    </table>
+    <div class="history-footer">
+      <button class="back-btn" id="history-clear-btn">🗑 履歴を全削除</button>
+    </div>`;
+
+  $('#history-back-btn').onclick = hideDetail;
+  $('#history-clear-btn').onclick = () => {
+    if (confirm('買い目履歴をすべて削除します。よろしいですか?')) {
+      saveHistory([]);
+      renderHistory([]);
+    }
+  };
+  view.querySelectorAll('.del-btn').forEach(btn => {
+    btn.onclick = () => {
+      const next = loadHistory().filter(e => e.id !== btn.dataset.id);
+      saveHistory(next);
+      renderHistory(next);
+    };
+  });
 }
 
 // ===== 回収率集計 =====
@@ -517,11 +691,58 @@ function renderDetail(race) {
     <div class="bets">
       <h3>💰 推奨買い目</h3>
       <div class="bet-grid">${betsHtml}</div>
+      <button id="record-bet-btn" class="record-btn"></button>
     </div>
     ${resultHtml}`;
 
   $('#back-btn').onclick = hideDetail;
+  const recordBtn = $('#record-bet-btn');
+  const recorded = loadHistory().some(e => e.id === `${race.race_date}_${jcd}_${race.race_number}`);
+  recordBtn.textContent = recorded ? '📝 記録済み(押すと上書き)' : '📝 この買い目を記録';
+  recordBtn.onclick = () => {
+    recordBet(race, pred);
+    recordBtn.textContent = '✅ 記録しました';
+  };
   detail.scrollIntoView({ behavior: 'smooth' });
+}
+
+// ===== 簡易PINロック =====
+// コードには暗証番号そのものではなく SHA-256(ソルト+暗証番号) のみを保持。
+// ※本格的な認証ではないため、機密情報は扱わないこと。
+const PIN_SALT = 'br-salt-v1:';
+const PIN_HASH = '58482ba9b4e2b34338bb08783604e999ab326d5062963b8ed54ce96b8395d50f';
+const PIN_STORE_KEY = 'br_pin_ok';
+
+async function sha256Hex(text) {
+  const buf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(text));
+  return [...new Uint8Array(buf)].map(b => b.toString(16).padStart(2, '0')).join('');
+}
+
+async function ensurePin() {
+  // secure context 以外 (LAN の IP 直打ちなど) では crypto.subtle が使えないためスキップ
+  if (!window.crypto || !crypto.subtle) return;
+  if (localStorage.getItem(PIN_STORE_KEY) === PIN_HASH) return;
+
+  const lock = $('#lock-screen');
+  lock.classList.add('visible');
+  const input = $('#pin-input');
+  input.focus();
+
+  await new Promise(resolve => {
+    const tryUnlock = async () => {
+      const hash = await sha256Hex(PIN_SALT + input.value.trim());
+      if (hash === PIN_HASH) {
+        localStorage.setItem(PIN_STORE_KEY, PIN_HASH);
+        resolve();
+      } else {
+        $('#pin-error').textContent = '暗証番号が違います';
+        input.value = '';
+        input.focus();
+      }
+    };
+    $('#pin-submit').onclick = tryUnlock;
+    input.onkeydown = e => { if (e.key === 'Enter') tryUnlock(); };
+  });
 }
 
 // ===== 初期化 =====
@@ -530,4 +751,13 @@ $('#stats-btn').onclick = async () => {
   await loadAll(); // 最新の結果を取り込んでから集計
   renderStats();
 };
-loadAll();
+$('#history-btn').onclick = async () => {
+  await loadAll();
+  const list = await settleHistory(); // 確定した結果を履歴に反映
+  renderHistory(list);
+};
+(async () => {
+  await ensurePin();
+  $('#lock-screen').remove();
+  loadAll();
+})();
