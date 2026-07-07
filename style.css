@@ -1,0 +1,181 @@
+* { margin: 0; padding: 0; box-sizing: border-box; }
+
+:root {
+  --bg: #0d1b2a;
+  --panel: #1b263b;
+  --panel-light: #24344d;
+  --accent: #00b4d8;
+  --accent2: #ffd60a;
+  --text: #e0e6ed;
+  --text-dim: #8d99ae;
+  --win: #ef476f;
+  --border: #33415c;
+}
+
+body {
+  font-family: "Hiragino Kaku Gothic ProN", "Hiragino Sans", Meiryo, sans-serif;
+  background: var(--bg);
+  color: var(--text);
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+}
+
+header {
+  background: linear-gradient(90deg, #1b263b, #0d3b66);
+  padding: 14px 20px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  border-bottom: 2px solid var(--accent);
+}
+header h1 { font-size: 1.3rem; color: #fff; }
+.header-info { display: flex; align-items: center; gap: 12px; }
+#today-date { color: var(--text-dim); font-size: 0.9rem; }
+#refresh-btn, #stats-btn {
+  background: var(--accent);
+  color: #002a3a;
+  border: none;
+  border-radius: 6px;
+  padding: 6px 14px;
+  font-weight: bold;
+  cursor: pointer;
+}
+#stats-btn { background: var(--accent2); }
+#refresh-btn:hover, #stats-btn:hover { filter: brightness(1.15); }
+
+main { flex: 1; padding: 16px; max-width: 1100px; margin: 0 auto; width: 100%; }
+
+.status { color: var(--text-dim); padding: 8px 0; font-size: 0.9rem; }
+.status.error { color: var(--win); }
+.hidden { display: none !important; }
+
+/* 場タブ */
+.stadium-tabs { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 16px; }
+.stadium-tab {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  color: var(--text);
+  border-radius: 8px;
+  padding: 8px 14px;
+  cursor: pointer;
+  font-size: 0.95rem;
+}
+.stadium-tab:hover { border-color: var(--accent); }
+.stadium-tab.active { background: var(--accent); color: #002a3a; font-weight: bold; }
+.stadium-tab .grade { font-size: 0.75rem; margin-left: 4px; }
+
+/* レース一覧 */
+.race-list { display: grid; grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); gap: 10px; margin-bottom: 20px; }
+.race-card {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 12px;
+  cursor: pointer;
+  transition: transform 0.1s;
+}
+.race-card:hover { border-color: var(--accent); transform: translateY(-2px); }
+.race-card .rno { font-size: 1.1rem; font-weight: bold; color: var(--accent2); }
+.race-card .rtitle { font-size: 0.8rem; color: var(--text-dim); margin: 4px 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.race-card .rtime { font-size: 0.85rem; }
+.race-card .done { color: var(--win); font-size: 0.8rem; font-weight: bold; }
+
+/* レース詳細 */
+.race-detail { background: var(--panel); border: 1px solid var(--border); border-radius: 12px; padding: 18px; }
+.detail-header { display: flex; justify-content: space-between; align-items: flex-start; flex-wrap: wrap; gap: 8px; margin-bottom: 12px; }
+.detail-header h2 { font-size: 1.15rem; color: #fff; }
+.detail-header .sub { color: var(--text-dim); font-size: 0.85rem; margin-top: 4px; }
+.back-btn {
+  background: var(--panel-light);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 6px 12px;
+  cursor: pointer;
+}
+.back-btn:hover { border-color: var(--accent); }
+
+.weather-bar {
+  display: flex; gap: 16px; flex-wrap: wrap;
+  background: var(--panel-light);
+  border-radius: 8px;
+  padding: 8px 12px;
+  font-size: 0.85rem;
+  margin-bottom: 14px;
+  color: var(--text-dim);
+}
+.weather-bar b { color: var(--text); }
+
+/* 予想テーブル */
+table { width: 100%; border-collapse: collapse; font-size: 0.87rem; }
+th, td { padding: 8px 6px; text-align: center; border-bottom: 1px solid var(--border); }
+th { color: var(--text-dim); font-weight: normal; font-size: 0.78rem; white-space: nowrap; }
+td.name { text-align: left; font-weight: bold; white-space: nowrap; }
+td.mark { font-size: 1.1rem; font-weight: bold; }
+
+.lane { display: inline-block; width: 24px; height: 24px; line-height: 24px; border-radius: 4px; font-weight: bold; color: #000; }
+.lane-1 { background: #fff; }
+.lane-2 { background: #333; color: #fff; }
+.lane-3 { background: #e63946; color: #fff; }
+.lane-4 { background: #1d7ee8; color: #fff; }
+.lane-5 { background: #ffd60a; }
+.lane-6 { background: #2a9d8f; color: #fff; }
+
+.score-bar-wrap { background: var(--bg); border-radius: 4px; height: 10px; width: 90px; margin: 0 auto; overflow: hidden; }
+.score-bar { background: linear-gradient(90deg, var(--accent), var(--accent2)); height: 100%; }
+.prob { font-weight: bold; color: var(--accent2); }
+.class-A1 { color: var(--win); font-weight: bold; }
+.class-A2 { color: var(--accent2); }
+.class-B1, .class-B2 { color: var(--text-dim); }
+.fcount { color: var(--win); font-size: 0.75rem; }
+
+/* 買い目 */
+.bets { margin-top: 18px; }
+.bets h3 { font-size: 1rem; margin-bottom: 8px; color: var(--accent); }
+.bet-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); gap: 10px; }
+.bet-box { background: var(--panel-light); border-radius: 8px; padding: 12px; }
+.bet-box .bet-type { font-size: 0.8rem; color: var(--text-dim); margin-bottom: 6px; }
+.bet-box .bet-nums { font-size: 1.05rem; font-weight: bold; letter-spacing: 1px; }
+.confidence { margin-top: 14px; padding: 10px 14px; border-radius: 8px; background: var(--panel-light); font-size: 0.9rem; }
+.confidence .level { font-weight: bold; font-size: 1.05rem; }
+.conf-high .level { color: var(--win); }
+.conf-mid .level { color: var(--accent2); }
+.conf-low .level { color: var(--accent); }
+
+/* 回収率集計 */
+.stats-summary {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+  gap: 10px;
+  margin-bottom: 18px;
+}
+.summary-card {
+  background: var(--panel-light);
+  border-radius: 8px;
+  padding: 12px;
+  text-align: center;
+}
+.summary-card .label { font-size: 0.75rem; color: var(--text-dim); margin-bottom: 4px; }
+.summary-card .value { font-size: 1.25rem; font-weight: bold; }
+.stats-h3 { font-size: 1rem; color: var(--accent); margin: 18px 0 8px; }
+.plus { color: var(--win); }
+.minus { color: var(--accent); }
+
+/* 結果 */
+.result-box { margin-top: 18px; padding: 12px; background: #16324f; border: 1px solid var(--accent); border-radius: 8px; }
+.result-box h3 { font-size: 1rem; color: var(--accent2); margin-bottom: 8px; }
+.hit { color: var(--win); font-weight: bold; }
+
+footer { padding: 14px 20px; color: var(--text-dim); font-size: 0.75rem; border-top: 1px solid var(--border); }
+footer a { color: var(--accent); }
+
+@media (max-width: 600px) {
+  th, td { padding: 6px 3px; font-size: 0.75rem; }
+  table { display: block; overflow-x: auto; } /* はみ出す場合は横スクロール */
+  /* スコアバー列は画面が狭いときは非表示 (予想勝率で代替できる) */
+  #race-detail th:nth-child(10), #race-detail td:nth-child(10) { display: none; }
+  .race-detail { padding: 12px; }
+}
