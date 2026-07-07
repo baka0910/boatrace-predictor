@@ -309,32 +309,71 @@ function hideDetail() {
   $('#race-list').classList.remove('hidden');
 }
 
-// ===== 買い目履歴 (localStorage に保存・日をまたいで蓄積) =====
-const HISTORY_KEY = 'br_bet_history_v1';
+// ===== 舟券データベース (実際に購入した買い目・金額を記録し localStorage に永続化) =====
+const BET_DB_KEY = 'br_bet_db_v1';
 const archiveResultCache = {}; // 日付 -> 結果配列
 
-function loadHistory() {
-  try { return JSON.parse(localStorage.getItem(HISTORY_KEY)) || []; }
+// 券種定義 (結果APIの payouts のキーと対応)
+const BET_TYPES = {
+  trifecta:       { label: '3連単',  need: 3, sep: '-' },
+  trio:           { label: '3連複',  need: 3, sep: '=' },
+  exacta:         { label: '2連単',  need: 2, sep: '-' },
+  quinella:       { label: '2連複',  need: 2, sep: '=' },
+  quinella_place: { label: '拡連複', need: 2, sep: '=' },
+  win:            { label: '単勝',   need: 1, sep: '' },
+  place:          { label: '複勝',   need: 1, sep: '' }
+};
+
+function loadBetDb() {
+  try { return JSON.parse(localStorage.getItem(BET_DB_KEY)) || []; }
   catch (e) { return []; }
 }
-function saveHistory(list) { localStorage.setItem(HISTORY_KEY, JSON.stringify(list)); }
+function saveBetDb(list) { localStorage.setItem(BET_DB_KEY, JSON.stringify(list)); }
 
-function recordBet(race, pred) {
-  const jcd = race.race_stadium_number;
-  const rno = race.race_number;
-  const id = `${race.race_date}_${jcd}_${rno}`;
-  const tickets = [];
-  pred.betGroups.forEach(g => g.combos.forEach(c => tickets.push({ type: g.type, key: comboKey(g.type, c) })));
-  const list = loadHistory().filter(e => e.id !== id); // 同レースは上書き
-  list.push({
-    id, race_date: race.race_date, jcd, rno,
-    predicted: pred.ranked.slice(0, 3).map(x => x.lane).join('-'),
-    tickets,
-    cost: tickets.length * 100,
-    recordedAt: new Date().toISOString(),
-    settled: false, payout: 0, hits: [], actual: null
+// 旧形式 (推奨買い目の一括記録) からの移行: 1点100円の購入として取り込む
+(function migrateOldHistory() {
+  const old = localStorage.getItem('br_bet_history_v1');
+  if (!old) return;
+  try {
+    const db = loadBetDb();
+    (JSON.parse(old) || []).forEach(e => {
+      (e.tickets || []).forEach((tk, i) => {
+        db.push({
+          id: `${e.id}_${i}`,
+          race_date: e.race_date, jcd: e.jcd, rno: e.rno,
+          type: tk.type, key: tk.key, amount: 100,
+          settled: false, payout: 0, actual: null,
+          recordedAt: e.recordedAt
+        });
+      });
+    });
+    saveBetDb(db);
+  } catch (err) { /* 変換できない場合は破棄 */ }
+  localStorage.removeItem('br_bet_history_v1');
+})();
+
+// 入力された買い目を正規化 ("1 2 3"や"1=2=3"も受け付けて正式表記へ)。不正なら null
+function normalizeCombo(type, raw) {
+  const t = BET_TYPES[type];
+  if (!t) return null;
+  const nums = String(raw).split(/[^1-6]/).filter(Boolean).map(Number);
+  if (nums.length !== t.need || new Set(nums).size !== nums.length) return null;
+  if (t.sep === '=') return [...nums].sort((a, z) => a - z).join('=');
+  return nums.join(t.sep);
+}
+
+function addBetRecord(race, type, key, amount) {
+  const db = loadBetDb();
+  db.push({
+    id: Date.now() + '_' + Math.random().toString(36).slice(2, 8),
+    race_date: race.race_date,
+    jcd: race.race_stadium_number,
+    rno: race.race_number,
+    type, key, amount,
+    settled: false, payout: 0, actual: null,
+    recordedAt: new Date().toISOString()
   });
-  saveHistory(list);
+  saveBetDb(db);
 }
 
 // 指定日の結果を取得 (当日はメモリ上の results、過去日はアーカイブAPI)
@@ -354,35 +393,100 @@ async function fetchResultsForDate(dateStr) {
   return archiveResultCache[dateStr];
 }
 
-// 未確定の履歴に結果を突き合わせて払戻を確定させる
-async function settleHistory() {
-  const list = loadHistory();
+// 未確定の舟券に結果を突き合わせ、実際の払戻金額を確定させる
+// (払戻データは100円あたりなので、購入金額に応じて換算)
+async function settleBets() {
+  const db = loadBetDb();
   let changed = false;
-  for (const e of list) {
-    if (e.settled) continue;
-    const dayResults = await fetchResultsForDate(e.race_date);
-    const r = dayResults.find(x => x.race_stadium_number === e.jcd && x.race_number === e.rno);
+  for (const b of db) {
+    if (b.settled) continue;
+    const dayResults = await fetchResultsForDate(b.race_date);
+    const r = dayResults.find(x => x.race_stadium_number === b.jcd && x.race_number === b.rno);
     if (!r || !r.payouts || !(r.payouts.trifecta || []).length) continue;
-    let payout = 0;
-    const hits = [];
-    e.tickets.forEach(tk => {
-      const p = payoutFor(r, tk.type, tk.key);
-      if (p > 0) {
-        payout += p;
-        hits.push({ type: tk.type, key: tk.key, payout: p });
-      }
-    });
-    e.settled = true;
-    e.payout = payout;
-    e.hits = hits;
-    e.actual = r.payouts.trifecta[0].combination;
+    const per100 = payoutFor(r, b.type, b.key);
+    b.payout = Math.round(per100 * b.amount / 100);
+    b.settled = true;
+    b.actual = r.payouts.trifecta[0].combination;
     changed = true;
   }
-  if (changed) saveHistory(list);
-  return list;
+  if (changed) saveBetDb(db);
+  return db;
 }
 
-function renderHistory(list) {
+// ===== エクスポート / バックアップ =====
+function downloadFile(name, content, mime) {
+  const blob = new Blob([content], { type: mime });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = name;
+  a.click();
+  URL.revokeObjectURL(a.href);
+}
+
+function exportCsv(db) {
+  const lines = [['日付', '場', 'R', '券種', '買い目', '購入金額', '結果(3連単)', '回収金額', '収支', '状態'].join(',')];
+  [...db].sort((a, z) => a.race_date.localeCompare(z.race_date) || a.jcd - z.jcd || a.rno - z.rno)
+    .forEach(b => {
+      lines.push([
+        b.race_date, STADIUMS[b.jcd] || b.jcd, b.rno,
+        BET_TYPES[b.type] ? BET_TYPES[b.type].label : b.type,
+        '"' + b.key + '"', b.amount,
+        b.actual ? '"' + b.actual + '"' : '',
+        b.settled ? b.payout : '',
+        b.settled ? b.payout - b.amount : '',
+        b.settled ? '確定' : '未確定'
+      ].join(','));
+    });
+  downloadFile('boatrace_bets.csv', '\uFEFF' + lines.join('\n'), 'text/csv;charset=utf-8'); // BOM付き(Excel対応)
+}
+
+// レース詳細画面: このレースで購入した舟券の一覧
+function renderMyBetsList(race) {
+  const el = $('#my-bets-list');
+  if (!el) return;
+  const mine = loadBetDb().filter(b =>
+    b.race_date === race.race_date &&
+    b.jcd === race.race_stadium_number &&
+    b.rno === race.race_number);
+  const yen = n => n.toLocaleString('ja-JP');
+
+  if (mine.length === 0) {
+    el.innerHTML = '<div class="status">このレースの購入記録はまだありません。</div>';
+    return;
+  }
+  const total = mine.reduce((a, b) => a + b.amount, 0);
+  const settled = mine.filter(b => b.settled);
+  const payout = settled.reduce((a, b) => a + b.payout, 0);
+  const sumHtml = settled.length === mine.length
+    ? ` / 回収 ${yen(payout)}円 / 収支 <b class="${payout - total >= 0 ? 'plus' : 'minus'}">${payout - total >= 0 ? '+' : ''}${yen(payout - total)}円</b>(回収率 ${(payout / total * 100).toFixed(1)}%)`
+    : '(結果待ちあり)';
+
+  el.innerHTML = `
+    <table>
+      <thead><tr><th>券種</th><th>買い目</th><th>購入</th><th>回収</th><th>収支</th><th></th></tr></thead>
+      <tbody>${mine.map(b => {
+        const diff = b.payout - b.amount;
+        return `<tr>
+          <td>${BET_TYPES[b.type] ? BET_TYPES[b.type].label : b.type}</td>
+          <td><b>${b.key}</b></td>
+          <td>${yen(b.amount)}円</td>
+          <td>${b.settled ? (b.payout > 0 ? '<span class="hit">🎯 </span>' : '') + yen(b.payout) + '円' : '<span class="pending">結果待ち</span>'}</td>
+          <td class="${diff >= 0 ? 'plus' : 'minus'}">${b.settled ? (diff >= 0 ? '+' : '') + yen(diff) + '円' : '-'}</td>
+          <td><button class="del-btn" data-id="${b.id}" title="削除">🗑</button></td>
+        </tr>`;
+      }).join('')}</tbody>
+    </table>
+    <div class="status">このレース合計: 購入 ${yen(total)}円${sumHtml}</div>`;
+
+  el.querySelectorAll('.del-btn').forEach(btn => {
+    btn.onclick = () => {
+      saveBetDb(loadBetDb().filter(b => b.id !== btn.dataset.id));
+      renderMyBetsList(race);
+    };
+  });
+}
+
+function renderBetDb(db) {
   $('#race-list').classList.add('hidden');
   $('#race-detail').classList.add('hidden');
   $('#stats-view').classList.add('hidden');
@@ -390,79 +494,110 @@ function renderHistory(list) {
   view.classList.remove('hidden');
 
   const yen = n => n.toLocaleString('ja-JP');
-  const entries = [...list].sort((a, z) => z.recordedAt.localeCompare(a.recordedAt));
+  const entries = [...db].sort((a, z) =>
+    z.race_date.localeCompare(a.race_date) || a.jcd - z.jcd || a.rno - z.rno || a.recordedAt.localeCompare(z.recordedAt));
 
   if (entries.length === 0) {
     view.innerHTML = `
       <div class="detail-header">
-        <h2>📝 買い目履歴</h2>
+        <h2>📝 舟券データベース</h2>
         <button class="back-btn" id="history-back-btn">← レース一覧へ</button>
       </div>
-      <div class="status">まだ記録がありません。レース詳細画面の「📝 この買い目を記録」で保存できます。</div>`;
+      <div class="status">まだ記録がありません。レース詳細画面の「🎫 買った舟券を記録」から、実際に購入した買い目と金額を入力してください。</div>`;
     $('#history-back-btn').onclick = hideDetail;
     return;
   }
 
-  const settled = entries.filter(e => e.settled);
-  const totalCost = settled.reduce((a, e) => a + e.cost, 0);
-  const totalPayout = settled.reduce((a, e) => a + e.payout, 0);
+  const settled = entries.filter(b => b.settled);
+  const totalCost = settled.reduce((a, b) => a + b.amount, 0);
+  const totalPayout = settled.reduce((a, b) => a + b.payout, 0);
   const roi = totalCost > 0 ? (totalPayout / totalCost * 100) : 0;
   const profit = totalPayout - totalCost;
+  const hitCount = settled.filter(b => b.payout > 0).length;
+  const pendingCost = entries.filter(b => !b.settled).reduce((a, b) => a + b.amount, 0);
 
-  const rows = entries.map(e => {
-    const hitsHtml = !e.settled
+  const rows = entries.map(b => {
+    const diff = b.payout - b.amount;
+    const resultHtml = !b.settled
       ? '<span class="pending">結果待ち</span>'
-      : (e.hits.length
-        ? e.hits.map(h => `🎯 ${TYPE_LABEL[h.type] || h.type} ${h.key} ${yen(h.payout)}円`).join('<br>')
-        : '不的中');
-    const diff = e.payout - e.cost;
+      : (b.payout > 0 ? `<span class="hit">🎯 的中</span>` : '不的中');
     return `<tr>
-      <td>${e.race_date.slice(5)}</td>
-      <td class="name">${STADIUMS[e.jcd]} ${e.rno}R</td>
-      <td>${e.predicted}</td>
-      <td>${e.settled ? e.actual : '-'}</td>
-      <td class="name">${hitsHtml}</td>
-      <td>${yen(e.cost)}円</td>
-      <td>${e.settled ? yen(e.payout) + '円' : '-'}</td>
-      <td class="${diff >= 0 ? 'plus' : 'minus'}">${e.settled ? (diff >= 0 ? '+' : '') + yen(diff) + '円' : '-'}</td>
-      <td><button class="del-btn" data-id="${e.id}" title="この記録を削除">🗑</button></td>
+      <td>${b.race_date.slice(5)}</td>
+      <td class="name">${STADIUMS[b.jcd] || b.jcd} ${b.rno}R</td>
+      <td>${BET_TYPES[b.type] ? BET_TYPES[b.type].label : b.type}</td>
+      <td><b>${b.key}</b></td>
+      <td>${yen(b.amount)}円</td>
+      <td>${b.settled ? b.actual : '-'}</td>
+      <td class="name">${resultHtml}</td>
+      <td>${b.settled ? yen(b.payout) + '円' : '-'}</td>
+      <td class="${diff >= 0 ? 'plus' : 'minus'}">${b.settled ? (diff >= 0 ? '+' : '') + yen(diff) + '円' : '-'}</td>
+      <td><button class="del-btn" data-id="${b.id}" title="この記録を削除">🗑</button></td>
     </tr>`;
   }).join('');
 
   view.innerHTML = `
     <div class="detail-header">
       <div>
-        <h2>📝 買い目履歴</h2>
-        <div class="sub">記録 ${entries.length} 件(確定 ${settled.length} 件)。確定分のみで回収率を計算しています。</div>
+        <h2>📝 舟券データベース</h2>
+        <div class="sub">記録 ${entries.length} 件(確定 ${settled.length} 件・的中 ${hitCount} 件)。回収率・収支は確定分のみで計算。${pendingCost ? `未確定の購入額 ${yen(pendingCost)}円` : ''}</div>
       </div>
       <button class="back-btn" id="history-back-btn">← レース一覧へ</button>
     </div>
     <div class="stats-summary">
       <div class="summary-card"><div class="label">回収率</div><div class="value ${roi >= 100 ? 'plus' : 'minus'}">${settled.length ? roi.toFixed(1) + '%' : '-'}</div></div>
+      <div class="summary-card"><div class="label">回収金額</div><div class="value">${yen(totalPayout)}円</div></div>
       <div class="summary-card"><div class="label">収支</div><div class="value ${profit >= 0 ? 'plus' : 'minus'}">${settled.length ? (profit >= 0 ? '+' : '') + yen(profit) + '円' : '-'}</div></div>
       <div class="summary-card"><div class="label">総購入</div><div class="value">${yen(totalCost)}円</div></div>
-      <div class="summary-card"><div class="label">総払戻</div><div class="value">${yen(totalPayout)}円</div></div>
+      <div class="summary-card"><div class="label">的中率</div><div class="value">${settled.length ? (hitCount / settled.length * 100).toFixed(1) + '%' : '-'}</div></div>
     </div>
     <table>
-      <thead><tr><th>日付</th><th>レース</th><th>予想</th><th>結果<br>(3連単)</th><th>的中</th><th>購入</th><th>払戻</th><th>収支</th><th></th></tr></thead>
+      <thead><tr><th>日付</th><th>レース</th><th>券種</th><th>買い目</th><th>購入</th><th>結果<br>(3連単)</th><th>的中</th><th>回収</th><th>収支</th><th></th></tr></thead>
       <tbody>${rows}</tbody>
     </table>
     <div class="history-footer">
-      <button class="back-btn" id="history-clear-btn">🗑 履歴を全削除</button>
+      <button class="back-btn" id="csv-btn">📥 CSVダウンロード</button>
+      <button class="back-btn" id="backup-btn">💾 バックアップ(JSON)</button>
+      <button class="back-btn" id="restore-btn">📤 復元</button>
+      <input type="file" id="restore-file" accept=".json" style="display:none">
+      <button class="back-btn" id="history-clear-btn">🗑 全削除</button>
     </div>`;
 
   $('#history-back-btn').onclick = hideDetail;
+  $('#csv-btn').onclick = () => exportCsv(loadBetDb());
+  $('#backup-btn').onclick = () =>
+    downloadFile('boatrace_bets_backup.json', JSON.stringify(loadBetDb(), null, 1), 'application/json');
+  $('#restore-btn').onclick = () => $('#restore-file').click();
+  $('#restore-file').onchange = (ev) => {
+    const file = ev.target.files[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = () => {
+      try {
+        const imported = JSON.parse(reader.result);
+        if (!Array.isArray(imported)) throw new Error('形式が不正です');
+        const db = loadBetDb();
+        const ids = new Set(db.map(b => b.id));
+        imported.forEach(b => { if (b && b.id && !ids.has(b.id)) db.push(b); });
+        saveBetDb(db);
+        renderBetDb(db);
+        alert('復元しました(既存の記録とマージ)');
+      } catch (e) {
+        alert('復元に失敗しました: ' + e.message);
+      }
+    };
+    reader.readAsText(file);
+  };
   $('#history-clear-btn').onclick = () => {
-    if (confirm('買い目履歴をすべて削除します。よろしいですか?')) {
-      saveHistory([]);
-      renderHistory([]);
+    if (confirm('舟券データベースをすべて削除します。よろしいですか?(事前にバックアップ推奨)')) {
+      saveBetDb([]);
+      renderBetDb([]);
     }
   };
   view.querySelectorAll('.del-btn').forEach(btn => {
     btn.onclick = () => {
-      const next = loadHistory().filter(e => e.id !== btn.dataset.id);
-      saveHistory(next);
-      renderHistory(next);
+      const next = loadBetDb().filter(b => b.id !== btn.dataset.id);
+      saveBetDb(next);
+      renderBetDb(next);
     };
   });
 }
@@ -691,17 +826,41 @@ function renderDetail(race) {
     <div class="bets">
       <h3>💰 推奨買い目</h3>
       <div class="bet-grid">${betsHtml}</div>
-      <button id="record-bet-btn" class="record-btn"></button>
+    </div>
+    <div class="my-bets">
+      <h3>🎫 買った舟券を記録</h3>
+      <div class="bet-form">
+        <select id="bet-type-input">${Object.keys(BET_TYPES).map(k => `<option value="${k}">${BET_TYPES[k].label}</option>`).join('')}</select>
+        <input id="bet-combo-input" placeholder="買い目 (例: 1-2-3)">
+        <input id="bet-amount-input" type="number" inputmode="numeric" min="100" step="100" value="100">
+        <span class="yen-label">円</span>
+        <button id="bet-add-btn">追加</button>
+      </div>
+      <div id="bet-form-error" class="pin-error"></div>
+      <div id="my-bets-list"></div>
     </div>
     ${resultHtml}`;
 
   $('#back-btn').onclick = hideDetail;
-  const recordBtn = $('#record-bet-btn');
-  const recorded = loadHistory().some(e => e.id === `${race.race_date}_${jcd}_${race.race_number}`);
-  recordBtn.textContent = recorded ? '📝 記録済み(押すと上書き)' : '📝 この買い目を記録';
-  recordBtn.onclick = () => {
-    recordBet(race, pred);
-    recordBtn.textContent = '✅ 記録しました';
+  renderMyBetsList(race);
+  $('#bet-add-btn').onclick = async () => {
+    const type = $('#bet-type-input').value;
+    const key = normalizeCombo(type, $('#bet-combo-input').value);
+    const amount = Math.round(Number($('#bet-amount-input').value));
+    const err = $('#bet-form-error');
+    if (!key) {
+      err.textContent = `買い目の形式が正しくありません(${BET_TYPES[type].label}は艇番を${BET_TYPES[type].need}つ、例: ${BET_TYPES[type].need === 3 ? '1-2-3' : BET_TYPES[type].need === 2 ? '1-2' : '1'})`;
+      return;
+    }
+    if (!(amount >= 100)) {
+      err.textContent = '金額は100円以上で入力してください';
+      return;
+    }
+    err.textContent = '';
+    addBetRecord(race, type, key, amount);
+    $('#bet-combo-input').value = '';
+    await settleBets(); // 結果が既に確定していれば即答え合わせ
+    renderMyBetsList(race);
   };
   detail.scrollIntoView({ behavior: 'smooth' });
 }
@@ -753,8 +912,8 @@ $('#stats-btn').onclick = async () => {
 };
 $('#history-btn').onclick = async () => {
   await loadAll();
-  const list = await settleHistory(); // 確定した結果を履歴に反映
-  renderHistory(list);
+  const db = await settleBets(); // 確定した結果を突き合わせて回収金額を反映
+  renderBetDb(db);
 };
 (async () => {
   await ensurePin();
