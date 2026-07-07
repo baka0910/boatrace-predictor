@@ -2,6 +2,23 @@
 
 当日の全国のボートレース出走表・直前情報・結果をWEBから自動取得し、統計モデルで各レースの予想(予想印・勝率・推奨買い目)を表示するアプリです。
 
+## 公開URL(スマホ・外出先からアクセス可)
+
+**https://baka0910.github.io/boatrace-predictor/**
+
+GitHub Pages で公開しています(リポジトリ: https://github.com/baka0910/boatrace-predictor)。スマホのブラウザでこのURLを開けばどこからでも使えます。ホーム画面に追加するとアプリのように起動できます。
+
+### 公開サイトの更新方法
+
+`public/` 内のファイルを変更したら、以下でサイトに反映されます。
+
+```bash
+cd boatrace-predictor
+git add -A && git commit -m "変更内容"
+git push                                        # main を更新
+git subtree push --prefix public origin gh-pages  # 公開サイトを更新
+```
+
 ## 起動方法
 
 ```bash
