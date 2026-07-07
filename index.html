@@ -3,14 +3,27 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="robots" content="noindex, nofollow">
   <title>ボートレースAI予想</title>
   <link rel="stylesheet" href="style.css">
 </head>
 <body>
+  <!-- 簡易PINロック -->
+  <div id="lock-screen" class="lock-screen">
+    <div class="lock-box">
+      <div class="lock-icon">🔒</div>
+      <h2>暗証番号を入力</h2>
+      <input id="pin-input" type="password" inputmode="numeric" autocomplete="off" placeholder="暗証番号">
+      <button id="pin-submit">解除</button>
+      <div id="pin-error" class="pin-error"></div>
+    </div>
+  </div>
+
   <header>
     <h1>🚤 ボートレースAI予想</h1>
     <div class="header-info">
       <span id="today-date"></span>
+      <button id="history-btn" title="記録した買い目の履歴と収支を表示">📝 履歴</button>
       <button id="stats-btn" title="確定レースの予想成績と回収率を表示">📊 回収率</button>
       <button id="refresh-btn" title="最新データを再取得">🔄 更新</button>
     </div>
@@ -30,6 +43,9 @@
 
     <!-- 予想成績・回収率 -->
     <section id="stats-view" class="race-detail hidden"></section>
+
+    <!-- 買い目履歴 -->
+    <section id="history-view" class="race-detail hidden"></section>
   </main>
 
   <footer>
