@@ -28,6 +28,20 @@ const WEATHER = { 1: '晴', 2: '曇', 3: '雨', 4: '雪', 5: '霧', 6: '雷' };
 const WIND_DIR = ['', '北', '北北東', '北東', '東北東', '東', '東南東', '南東', '南南東',
   '南', '南南西', '南西', '西南西', '西', '西北西', '北西', '北北西', '無風'];
 
+// ===== 予想スタイル =====
+// courseExp: コース別基礎勝率に掛ける指数 (1.0=そのまま、小さいほどコース差を圧縮して実力重視に)
+// skillW:    実力差の効き方 (大きいほど勝率・モーターの差を強く反映)
+const STYLES = {
+  honmei: { label: '🎯 本命重視', courseExp: 1.0, skillW: 0.9,
+    desc: 'コースの有利不利をそのまま評価。実際の出目に最も忠実で、1コース中心の堅い予想。' },
+  chuana: { label: '🌀 中穴狙い', courseExp: 0.55, skillW: 1.15,
+    desc: 'コース差のウエイトを半分程度に圧縮し、実力・機力が上位の外枠を積極的に評価。' },
+  ooana: { label: '💥 大穴狙い', courseExp: 0.3, skillW: 1.35,
+    desc: 'コース差をほぼ無視して選手力・モーター力だけで波乱の目を探す。的中率は低いが高配当狙い。' }
+};
+let betStyle = localStorage.getItem('br_style') || 'honmei';
+if (!STYLES[betStyle]) betStyle = 'honmei';
+
 // ===== 状態 =====
 let programs = [];
 let previews = [];
@@ -158,10 +172,12 @@ function predictRace(race, preview) {
   }
 
   // 勝率推定: コース別基礎勝率 × 実力補正(乗算型)
-  // 実力が平均より高いほど基礎勝率を押し上げるが、コースの序列が支配的
+  // 予想スタイルに応じて「コース差の圧縮率」と「実力差の効き」を変える
+  // (本命: コース序列が支配的 / 中穴・大穴: コース差を圧縮して実力・機力を重視)
+  const stl = STYLES[betStyle] || STYLES.honmei;
   const meanSkill = boats.reduce((a, x) => a + x.skill, 0) / boats.length;
   boats.forEach(x => {
-    x.score = x.courseRate * Math.exp((x.skill - meanSkill) * 0.9);
+    x.score = Math.pow(x.courseRate, stl.courseExp) * Math.exp((x.skill - meanSkill) * stl.skillW);
   });
   const sum = boats.reduce((a, x) => a + x.score, 0);
   boats.forEach(x => { x.winProb = x.score / sum; });
@@ -240,6 +256,25 @@ function simulateRace(race, preview, result) {
 }
 
 // ===== 描画 =====
+function renderStyleBar() {
+  const box = $('#style-buttons');
+  box.innerHTML = '';
+  Object.keys(STYLES).forEach(key => {
+    const btn = document.createElement('button');
+    btn.className = 'style-btn' + (key === betStyle ? ' active' : '');
+    btn.textContent = STYLES[key].label;
+    btn.onclick = () => {
+      betStyle = key;
+      localStorage.setItem('br_style', key);
+      renderStyleBar();
+      hideDetail();
+      if (currentStadium !== null) renderRaceList(currentStadium); // 予想を新スタイルで再計算
+    };
+    box.appendChild(btn);
+  });
+  $('#style-desc').textContent = STYLES[betStyle].desc;
+}
+
 function renderStadiumTabs() {
   const tabs = $('#stadium-tabs');
   tabs.innerHTML = '';
@@ -807,12 +842,13 @@ function renderDetail(race) {
     <div class="detail-header">
       <div>
         <h2>${STADIUMS[jcd]} ${race.race_number}R ${race.race_subtitle || ''}</h2>
-        <div class="sub">${race.race_title || ''} / ${race.race_distance || 1800}m / 締切 ${(race.race_closed_at || '').slice(11, 16)}</div>
+        <div class="sub">${race.race_title || ''} / ${race.race_distance || 1800}m / 締切 ${(race.race_closed_at || '').slice(11, 16)} / ${STYLES[betStyle].label}</div>
       </div>
       <button class="back-btn" id="back-btn">← レース一覧へ</button>
     </div>
     ${weatherHtml}
     ${hasPreviewData ? '' : '<div class="status">※ 直前情報(展示タイム・気象)は未発表です。出走表データのみで予想しています。締切前に「更新」してください。</div>'}
+    ${betStyle === 'honmei' ? '' : `<div class="status">※ ${STYLES[betStyle].label}スタイル適用中。「予想勝率」は実際の勝率ではなく狙い度の目安です。</div>`}
     <table>
       <thead><tr>
         <th>印</th><th>枠</th><th>選手</th><th>級</th><th>全国<br>勝率</th><th>当地<br>勝率</th>
@@ -918,5 +954,6 @@ $('#history-btn').onclick = async () => {
 (async () => {
   await ensurePin();
   $('#lock-screen').remove();
+  renderStyleBar();
   loadAll();
 })();
