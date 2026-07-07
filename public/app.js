@@ -905,7 +905,7 @@ function renderDetail(race) {
 // コードには暗証番号そのものではなく SHA-256(ソルト+暗証番号) のみを保持。
 // ※本格的な認証ではないため、機密情報は扱わないこと。
 const PIN_SALT = 'br-salt-v1:';
-const PIN_HASH = '58482ba9b4e2b34338bb08783604e999ab326d5062963b8ed54ce96b8395d50f';
+const PIN_HASH = 'be98f21a3747b9d17f5e5f59e6c2339dbf26b69c84197600287d2e57a271de87';
 const PIN_STORE_KEY = 'br_pin_ok';
 
 async function sha256Hex(text) {
