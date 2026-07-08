@@ -208,8 +208,12 @@ td.mark { font-size: 1.1rem; font-weight: bold; }
   font-size: 0.95rem;
 }
 .bet-form select:focus, .bet-form input:focus { outline: none; border-color: var(--accent); }
-#bet-combo-input { width: 140px; }
+#bet-combo-wrap { display: flex; gap: 4px; align-items: center; flex-wrap: wrap; }
+.combo-input { width: 140px; }
+.combo-pos { width: 90px; }
+.form-sep { color: var(--text-dim); }
 #bet-amount-input { width: 100px; text-align: right; }
+#bet-preview { color: var(--accent2); }
 .yen-label { color: var(--text-dim); }
 #bet-add-btn {
   background: #b8c0ff;
