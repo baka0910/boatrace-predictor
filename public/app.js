@@ -112,6 +112,11 @@ async function loadAll() {
 function findPreview(jcd, rno) {
   return previews.find(p => p.race_stadium_number === jcd && p.race_number === rno);
 }
+// スタート展示(直前情報)が発表済みか
+function hasExhibition(jcd, rno) {
+  const p = findPreview(jcd, rno);
+  return !!(p && p.boats && Object.values(p.boats).some(b => b.racer_exhibition_time > 0));
+}
 function findResult(jcd, rno) {
   const r = results.find(x => x.race_stadium_number === jcd && x.race_number === rno);
   if (!r || !r.boats || !r.boats.some(b => b.racer_place_number)) return null;
@@ -357,7 +362,9 @@ function renderRaceList(jcd) {
         ? '<span class="done">🏁 結果確定</span>'
         : closed
           ? '<span class="pending">⏳ 締切済み・結果待ち</span>'
-          : `締切 ${time}`;
+          : `締切 ${time}${hasExhibition(jcd, race.race_number)
+              ? ' <span class="ex-badge">🚤 展示反映</span>'
+              : ' <span class="ex-wait">展示待ち</span>'}`;
       card.innerHTML = `
         <div class="rno">${race.race_number}R</div>
         <div class="rtitle">${race.race_subtitle || race.race_title || ''}</div>
