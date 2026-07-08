@@ -21,6 +21,7 @@ const IN_STRENGTH = {
 const COURSE_WIN_RATE = { 1: 0.55, 2: 0.14, 3: 0.12, 4: 0.10, 5: 0.06, 6: 0.02 };
 
 const GRADES = { 1: 'SG', 2: 'G1', 3: 'G2', 4: 'G3', 5: '一般' };
+const TECHNIQUES = { 1: '逃げ', 2: '差し', 3: 'まくり', 4: 'まくり差し', 5: '抜き', 6: '恵まれ' };
 const CLASSES = { 1: 'A1', 2: 'A2', 3: 'B1', 4: 'B2' };
 const CLASS_SCORE = { 1: 1.0, 2: 0.7, 3: 0.4, 4: 0.2 };
 const MARKS = ['◎', '○', '▲', '△', '✕', '　'];
@@ -475,6 +476,39 @@ function exportCsv(db) {
   downloadFile('boatrace_bets.csv', '\uFEFF' + lines.join('\n'), 'text/csv;charset=utf-8'); // BOM付き(Excel対応)
 }
 
+// スリット図 (スタート隊形): 進入コース順に並べ、STに応じて横位置をずらす
+// rows: [{course, lane, name, st, place}] / techLabel: 決まり手 (結果時のみ)
+function slitHtml(title, rows, techLabel) {
+  const valid = rows.filter(r => r.course);
+  if (valid.length < 2) return '';
+  valid.sort((a, z) => a.course - z.course);
+  const LINE_X = 50;  // スタートライン位置(px)
+  const SCALE = 400;  // 1秒あたりのpx換算 (ST0.15 → 60px後方)
+  const boatsHtml = valid.map(r => {
+    const hasSt = r.st !== null && r.st !== undefined;
+    const off = hasSt ? LINE_X + Math.max(-30, Math.min(150, r.st * SCALE)) : LINE_X;
+    const isF = hasSt && r.st < 0;
+    const stText = !hasSt ? '' : (isF ? 'F.' + Math.abs(r.st).toFixed(2).slice(2) : '.' + r.st.toFixed(2).slice(2));
+    return `<div class="slit-row">
+      <span class="slit-course">${r.course}</span>
+      <div class="slit-track">
+        <div class="slit-boat" style="left:${off}px">
+          <span class="lane lane-${r.lane}">${r.lane}</span>
+          <span class="slit-name">${r.name || ''}</span>
+          <span class="slit-st ${isF ? 'fcount' : ''}">${stText}</span>
+          ${r.place ? `<span class="place-badge place-${r.place}">${r.place}着</span>` : ''}
+        </div>
+      </div>
+    </div>`;
+  }).join('');
+  return `
+    <div class="slit-box">
+      <h4>${title}${techLabel ? `<span class="technique-badge">決まり手: ${techLabel}</span>` : ''}</h4>
+      <div class="slit">${boatsHtml}</div>
+      <div class="slit-note">縦線=スタートライン / 右にいるほどスタートが遅い / 線より左はフライング</div>
+    </div>`;
+}
+
 // レース詳細画面: このレースで購入した舟券の一覧
 function renderMyBetsList(race) {
   const el = $('#my-bets-list');
@@ -838,6 +872,25 @@ function renderDetail(race) {
       </div>`;
   }
 
+  // スリット図: 結果があれば本番スタート、なければ展示スタート(直前情報発表後)
+  let slitSection = '';
+  if (result) {
+    const rows = result.boats.map(b => ({
+      course: b.racer_course_number, lane: b.racer_boat_number,
+      name: b.racer_name, st: b.racer_start_timing, place: b.racer_place_number
+    }));
+    slitSection = slitHtml('🏁 本番スタート隊形(進入コース順)', rows, TECHNIQUES[result.race_technique_number]);
+  } else if (preview && preview.boats) {
+    const rows = Object.values(preview.boats).map(pb => {
+      const rb = race.boats.find(x => x.racer_boat_number === pb.racer_boat_number) || {};
+      return {
+        course: pb.racer_course_number, lane: pb.racer_boat_number,
+        name: rb.racer_name, st: pb.racer_start_timing, place: null
+      };
+    });
+    slitSection = slitHtml('🚤 展示スタート隊形(進入コース順)', rows, null);
+  }
+
   detail.innerHTML = `
     <div class="detail-header">
       <div>
@@ -859,6 +912,7 @@ function renderDetail(race) {
     <div class="confidence ${pred.confidence.cls}">
       信頼度: <span class="level">${pred.confidence.level}</span> — ${pred.confidence.note}
     </div>
+    ${slitSection}
     <div class="bets">
       <h3>💰 推奨買い目</h3>
       <div class="bet-grid">${betsHtml}</div>
