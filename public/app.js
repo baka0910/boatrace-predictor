@@ -350,13 +350,19 @@ function renderRaceList(jcd) {
       card.className = 'race-card';
       const time = (race.race_closed_at || '').slice(11, 16);
       const done = findResult(jcd, race.race_number);
+      const closed = race.race_closed_at && new Date(race.race_closed_at.replace(' ', 'T')) <= new Date();
       const pred = predictRace(race, findPreview(jcd, race.race_number));
       const stars = recommendStars(pred);
+      const statusHtml = done
+        ? '<span class="done">🏁 結果確定</span>'
+        : closed
+          ? '<span class="pending">⏳ 締切済み・結果待ち</span>'
+          : `締切 ${time}`;
       card.innerHTML = `
         <div class="rno">${race.race_number}R</div>
         <div class="rtitle">${race.race_subtitle || race.race_title || ''}</div>
         <div class="rec rec-${stars}" title="おすすめ度(予想の自信度)">${'★'.repeat(stars)}<span class="star-dim">${'★'.repeat(5 - stars)}</span> ◎${pred.ranked[0].lane}</div>
-        <div class="rtime">締切 ${time}${done ? ' <span class="done">結果あり</span>' : ''}</div>`;
+        <div class="rtime">${statusHtml}</div>`;
       card.onclick = () => renderDetail(race);
       list.appendChild(card);
     });
@@ -983,7 +989,7 @@ function renderDetail(race) {
     <div class="detail-header">
       <div>
         <h2>${STADIUMS[jcd]} ${race.race_number}R ${race.race_subtitle || ''}</h2>
-        <div class="sub">${race.race_title || ''} / ${race.race_distance || 1800}m / 締切 ${(race.race_closed_at || '').slice(11, 16)} / ${STYLES[betStyle].label}</div>
+        <div class="sub">${race.race_title || ''} / ${race.race_distance || 1800}m / 締切 ${(race.race_closed_at || '').slice(11, 16)}${result ? '(🏁 結果確定)' : (race.race_closed_at && new Date(race.race_closed_at.replace(' ', 'T')) <= new Date() ? '(締切済み・結果待ち)' : '')} / ${STYLES[betStyle].label}</div>
       </div>
       <button class="back-btn" id="back-btn">← レース一覧へ</button>
     </div>
