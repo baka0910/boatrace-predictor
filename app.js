@@ -482,21 +482,22 @@ function slitHtml(title, rows, techLabel) {
   const valid = rows.filter(r => r.course);
   if (valid.length < 2) return '';
   valid.sort((a, z) => a.course - z.course);
-  const LINE_X = 50;  // スタートライン位置(px)
-  const SCALE = 400;  // 1秒あたりのpx換算 (ST0.15 → 60px後方)
+  // 艇は左→右に進む。STが速いほど右(ライン寄り)、遅いほど左。Fはラインを越えて右へ
+  const LINE_RIGHT = 60; // スタートラインの右端からの位置(px)
+  const SCALE = 400;     // 1秒あたりのpx換算 (ST0.15 → ラインから60px後方)
   const boatsHtml = valid.map(r => {
     const hasSt = r.st !== null && r.st !== undefined;
-    const off = hasSt ? LINE_X + Math.max(-30, Math.min(150, r.st * SCALE)) : LINE_X;
+    const off = hasSt ? LINE_RIGHT + Math.max(-40, Math.min(150, r.st * SCALE)) : LINE_RIGHT;
     const isF = hasSt && r.st < 0;
     const stText = !hasSt ? '' : (isF ? 'F.' + Math.abs(r.st).toFixed(2).slice(2) : '.' + r.st.toFixed(2).slice(2));
     return `<div class="slit-row">
       <span class="slit-course">${r.course}</span>
       <div class="slit-track">
-        <div class="slit-boat" style="left:${off}px">
-          <span class="lane lane-${r.lane}">${r.lane}</span>
+        <div class="slit-boat" style="right:${off}px">
+          ${r.place ? `<span class="place-badge place-${r.place}">${r.place}着</span>` : ''}
           <span class="slit-name">${r.name || ''}</span>
           <span class="slit-st ${isF ? 'fcount' : ''}">${stText}</span>
-          ${r.place ? `<span class="place-badge place-${r.place}">${r.place}着</span>` : ''}
+          <span class="lane lane-${r.lane}">${r.lane}</span>
         </div>
       </div>
     </div>`;
@@ -505,7 +506,7 @@ function slitHtml(title, rows, techLabel) {
     <div class="slit-box">
       <h4>${title}${techLabel ? `<span class="technique-badge">決まり手: ${techLabel}</span>` : ''}</h4>
       <div class="slit">${boatsHtml}</div>
-      <div class="slit-note">縦線=スタートライン / 右にいるほどスタートが遅い / 線より左はフライング</div>
+      <div class="slit-note">艇は左→右に進行 / 縦線=スタートライン / 左にいるほどスタートが遅れた艇 / 線を越えて右はフライング</div>
     </div>`;
 }
 

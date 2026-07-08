@@ -259,7 +259,7 @@ td.mark { font-size: 1.1rem; font-weight: bold; }
   position: absolute;
   top: -4px;
   bottom: -4px;
-  left: 50px;
+  right: 60px;
   width: 2px;
   background: var(--accent);
   opacity: 0.65;
