@@ -148,10 +148,21 @@ function predictRace(race, preview) {
       exhibition = pvBoat.racer_exhibition_time; // あとで順位化
     }
 
+    // --- 直前情報(展示ST = スタート展示) ---
+    // 速いほど加点(基準0.15秒)、展示Fは本番で慎重なスタートになりやすいため減点
+    let exStScore = 0;
+    const exSt = pvBoat && pvBoat.racer_start_timing !== null && pvBoat.racer_start_timing !== undefined
+      ? pvBoat.racer_start_timing : null;
+    if (exSt !== null) {
+      exStScore = exSt < 0
+        ? -0.15
+        : Math.max(-0.25, Math.min(0.25, (0.15 - exSt) * 2.5));
+    }
+
     // --- ペナルティ ---
     const fPenalty = (b.racer_flying_count || 0) * 0.15; // F持ちはスタート慎重になる
 
-    // 実力スコア(選手力 + 機力)
+    // 実力スコア(選手力 + 機力 + 直前スタート気配)
     const skill =
       natWin * 1.5 +
       localWin * 0.8 +
@@ -159,7 +170,8 @@ function predictRace(race, preview) {
       cls * 1.0 +
       st * 0.8 +
       motor * 1.5 +
-      boat * 0.5 -
+      boat * 0.5 +
+      exStScore -
       fPenalty;
 
     return { b, lane, course, skill, courseRate, exhibition, pvBoat };
