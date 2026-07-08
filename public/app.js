@@ -159,10 +159,21 @@ function predictRace(race, preview) {
         : Math.max(-0.25, Math.min(0.25, (0.15 - exSt) * 2.5));
     }
 
+    // --- 直前情報(チルト角度) ---
+    // プラスに跳ね上げるほど伸び(直線速度)重視のセッティング。
+    // 外コースからの攻め(まくり)で活きやすいため、コースが外なほど効きを大きくする
+    const tilt = pvBoat && pvBoat.racer_tilt_adjustment !== null && pvBoat.racer_tilt_adjustment !== undefined
+      ? pvBoat.racer_tilt_adjustment : null;
+    let tiltScore = 0;
+    if (tilt !== null && tilt !== 0) {
+      const tv = Math.max(-0.5, Math.min(3, tilt));
+      tiltScore = tv * (course >= 4 ? 0.08 : course === 3 ? 0.06 : 0.03);
+    }
+
     // --- ペナルティ ---
     const fPenalty = (b.racer_flying_count || 0) * 0.15; // F持ちはスタート慎重になる
 
-    // 実力スコア(選手力 + 機力 + 直前スタート気配)
+    // 実力スコア(選手力 + 機力 + 直前スタート気配 + セッティング)
     const skill =
       natWin * 1.5 +
       localWin * 0.8 +
@@ -171,7 +182,8 @@ function predictRace(race, preview) {
       st * 0.8 +
       motor * 1.5 +
       boat * 0.5 +
-      exStScore -
+      exStScore +
+      tiltScore -
       fPenalty;
 
     return { b, lane, course, skill, courseRate, exhibition, pvBoat };
@@ -903,7 +915,7 @@ function renderDetail(race) {
       <td>${(b.racer_local_top_1_percent || 0).toFixed(2)}</td>
       <td>${(b.racer_assigned_motor_top_2_percent || 0).toFixed(1)}%</td>
       <td>${(b.racer_average_start_timing || 0).toFixed(2)}</td>
-      <td>${ex}${exSt !== null ? `<br><small>ST ${exSt}</small>` : ''}</td>
+      <td>${ex}${exSt !== null ? `<br><small>ST ${exSt}</small>` : ''}${ex !== '-' && x.pvBoat.racer_tilt_adjustment !== null && x.pvBoat.racer_tilt_adjustment !== undefined ? `<br><small>T${x.pvBoat.racer_tilt_adjustment > 0 ? '+' : ''}${x.pvBoat.racer_tilt_adjustment}</small>` : ''}</td>
       <td><div class="score-bar-wrap"><div class="score-bar" style="width:${(x.winProb / Math.max(...pred.boats.map(v => v.winProb)) * 100).toFixed(0)}%"></div></div></td>
       <td class="prob">${(x.winProb * 100).toFixed(1)}%</td>
     </tr>`;
