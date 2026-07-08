@@ -410,6 +410,69 @@ function normalizeCombo(type, raw) {
   return nums.join(t.sep);
 }
 
+// 入力文字列から艇番(1〜6)を重複なしで抽出
+function parseBoats(raw) {
+  const seen = new Set();
+  const out = [];
+  String(raw).split(/[^1-6]/).filter(Boolean).forEach(s => {
+    [...s].forEach(ch => {
+      const n = Number(ch);
+      if (!seen.has(n)) { seen.add(n); out.push(n); }
+    });
+  });
+  return out;
+}
+
+// 買い方(通常/ボックス/フォーメーション)に応じて買い目を展開する。不正なら null
+function expandCombos(type, method, raws) {
+  const t = BET_TYPES[type];
+  if (!t) return null;
+
+  if (method === 'single') {
+    const k = normalizeCombo(type, raws[0]);
+    return k ? [k] : null;
+  }
+
+  if (method === 'box') {
+    const nums = parseBoats(raws[0]);
+    if (nums.length < t.need) return null;
+    if (t.sep === '=') {
+      // 連複系: 組み合わせ (順不同)
+      const out = [];
+      const rec = (start, acc) => {
+        if (acc.length === t.need) { out.push([...acc].sort((a, z) => a - z).join('=')); return; }
+        for (let i = start; i < nums.length; i++) { acc.push(nums[i]); rec(i + 1, acc); acc.pop(); }
+      };
+      rec(0, []);
+      return out;
+    }
+    // 連単系: 順列
+    const out = [];
+    const rec = (acc) => {
+      if (acc.length === t.need) { out.push(acc.join('-')); return; }
+      nums.forEach(n => { if (!acc.includes(n)) { acc.push(n); rec(acc); acc.pop(); } });
+    };
+    rec([]);
+    return out;
+  }
+
+  if (method === 'formation') {
+    const groups = raws.slice(0, t.need).map(parseBoats);
+    if (groups.length < t.need || groups.some(g => g.length === 0)) return null;
+    const out = [];
+    const rec = (idx, acc) => {
+      if (idx === t.need) { out.push([...acc]); return; }
+      groups[idx].forEach(n => { if (!acc.includes(n)) { acc.push(n); rec(idx + 1, acc); acc.pop(); } });
+    };
+    rec(0, []);
+    if (out.length === 0) return null;
+    // 連複系は順不同なので同一組み合わせを排除
+    const set = new Set(out.map(c => t.sep === '=' ? [...c].sort((a, z) => a - z).join('=') : c.join('-')));
+    return [...set];
+  }
+  return null;
+}
+
 function addBetRecord(race, type, key, amount) {
   const db = loadBetDb();
   db.push({
@@ -934,11 +997,17 @@ function renderDetail(race) {
       <h3>🎫 買った舟券を記録</h3>
       <div class="bet-form">
         <select id="bet-type-input">${Object.keys(BET_TYPES).map(k => `<option value="${k}">${BET_TYPES[k].label}</option>`).join('')}</select>
-        <input id="bet-combo-input" placeholder="買い目 (例: 1-2-3)">
+        <select id="bet-method-input">
+          <option value="single">通常</option>
+          <option value="box">ボックス</option>
+          <option value="formation">フォーメーション</option>
+        </select>
+        <span id="bet-combo-wrap"></span>
         <input id="bet-amount-input" type="number" inputmode="numeric" min="100" step="100" value="100">
-        <span class="yen-label">円</span>
+        <span class="yen-label">円/点</span>
         <button id="bet-add-btn">追加</button>
       </div>
+      <div id="bet-preview" class="status"></div>
       <div id="bet-form-error" class="pin-error"></div>
       <div id="my-bets-list"></div>
     </div>
@@ -946,22 +1015,78 @@ function renderDetail(race) {
 
   $('#back-btn').onclick = hideDetail;
   renderMyBetsList(race);
+
+  // 買い方に応じた入力欄の切り替え
+  const renderComboInputs = () => {
+    const type = $('#bet-type-input').value;
+    const method = $('#bet-method-input').value;
+    const t = BET_TYPES[type];
+    const wrap = $('#bet-combo-wrap');
+    if (t.need === 1) { // 単勝・複勝は通常のみ
+      $('#bet-method-input').value = 'single';
+      $('#bet-method-input').disabled = true;
+      wrap.innerHTML = `<input id="bet-combo-input" class="combo-input" placeholder="艇番 (例: 1)">`;
+    } else {
+      $('#bet-method-input').disabled = false;
+      if (method === 'formation') {
+        const labels = ['1着候補', '2着候補', '3着候補'];
+        wrap.innerHTML = Array.from({ length: t.need }, (_, i) =>
+          `<input class="combo-input combo-pos" placeholder="${t.sep === '=' ? (i === 0 ? '軸 例:1' : '相手 例:2,3') : labels[i] + (i === 0 ? ' 例:1' : ' 例:2,3')}">`
+        ).join('<span class="form-sep">-</span>');
+      } else if (method === 'box') {
+        wrap.innerHTML = `<input id="bet-combo-input" class="combo-input" placeholder="艇番${t.need}艇以上 (例: 1,2,3)">`;
+      } else {
+        wrap.innerHTML = `<input id="bet-combo-input" class="combo-input" placeholder="買い目 (例: ${t.need === 3 ? '1-2-3' : '1-2'})">`;
+      }
+    }
+    updatePreview();
+  };
+
+  // 展開結果のプレビュー (◯点 × 金額 = 合計)
+  const collectRaws = () => {
+    const method = $('#bet-method-input').value;
+    if (method === 'formation') return [...detail.querySelectorAll('.combo-pos')].map(i => i.value);
+    return [$('#bet-combo-input') ? $('#bet-combo-input').value : ''];
+  };
+  const updatePreview = () => {
+    const type = $('#bet-type-input').value;
+    const method = $('#bet-method-input').value;
+    const amount = Math.round(Number($('#bet-amount-input').value)) || 0;
+    const keys = expandCombos(type, method, collectRaws());
+    const pv = $('#bet-preview');
+    if (!keys || keys.length === 0) { pv.textContent = ''; return; }
+    const list = keys.length <= 12 ? `: ${keys.join(', ')}` : '';
+    pv.textContent = `${keys.length}点 × ${amount.toLocaleString('ja-JP')}円 = 合計 ${(keys.length * amount).toLocaleString('ja-JP')}円${list}`;
+  };
+
+  $('#bet-type-input').onchange = renderComboInputs;
+  $('#bet-method-input').onchange = renderComboInputs;
+  detail.querySelector('.bet-form').addEventListener('input', updatePreview);
+  renderComboInputs();
+
   $('#bet-add-btn').onclick = async () => {
     const type = $('#bet-type-input').value;
-    const key = normalizeCombo(type, $('#bet-combo-input').value);
+    const method = $('#bet-method-input').value;
     const amount = Math.round(Number($('#bet-amount-input').value));
     const err = $('#bet-form-error');
-    if (!key) {
-      err.textContent = `買い目の形式が正しくありません(${BET_TYPES[type].label}は艇番を${BET_TYPES[type].need}つ、例: ${BET_TYPES[type].need === 3 ? '1-2-3' : BET_TYPES[type].need === 2 ? '1-2' : '1'})`;
+    const keys = expandCombos(type, method, collectRaws());
+    if (!keys || keys.length === 0) {
+      const t = BET_TYPES[type];
+      err.textContent = method === 'box'
+        ? `ボックスは艇番を${t.need}艇以上入力してください(例: 1,2,3)`
+        : method === 'formation'
+          ? '各欄に艇番を1つ以上入力してください(例: 1着候補=1、2着候補=2,3)'
+          : `買い目の形式が正しくありません(${t.label}は艇番を${t.need}つ、例: ${t.need === 3 ? '1-2-3' : t.need === 2 ? '1-2' : '1'})`;
       return;
     }
     if (!(amount >= 100)) {
-      err.textContent = '金額は100円以上で入力してください';
+      err.textContent = '金額は100円以上で入力してください(1点あたり)';
       return;
     }
     err.textContent = '';
-    addBetRecord(race, type, key, amount);
-    $('#bet-combo-input').value = '';
+    keys.forEach(k => addBetRecord(race, type, k, amount));
+    detail.querySelectorAll('.combo-input').forEach(i => { i.value = ''; });
+    $('#bet-preview').textContent = `✅ ${keys.length}点(合計 ${(keys.length * amount).toLocaleString('ja-JP')}円)を記録しました`;
     await settleBets(); // 結果が既に確定していれば即答え合わせ
     renderMyBetsList(race);
   };
