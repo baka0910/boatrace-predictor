@@ -226,6 +226,53 @@ td.mark { font-size: 1.1rem; font-weight: bold; }
 .del-btn { background: none; border: none; cursor: pointer; font-size: 1rem; }
 .history-footer { margin-top: 14px; display: flex; gap: 8px; flex-wrap: wrap; justify-content: flex-end; }
 
+/* スリット図 (スタート隊形) */
+.slit-box {
+  margin-top: 16px;
+  background: var(--panel-light);
+  border-radius: 8px;
+  padding: 12px;
+  overflow-x: auto;
+}
+.slit-box h4 {
+  font-size: 0.95rem;
+  color: var(--accent);
+  margin-bottom: 10px;
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+.technique-badge {
+  background: var(--win);
+  color: #fff;
+  border-radius: 4px;
+  padding: 2px 10px;
+  font-size: 0.8rem;
+}
+.slit { min-width: 320px; }
+.slit-row { display: flex; align-items: center; margin: 7px 0; }
+.slit-course { width: 18px; color: var(--text-dim); font-size: 0.8rem; text-align: center; flex-shrink: 0; }
+.slit-track { position: relative; flex: 1; height: 26px; }
+.slit-track::before {
+  content: '';
+  position: absolute;
+  top: -4px;
+  bottom: -4px;
+  left: 50px;
+  width: 2px;
+  background: var(--accent);
+  opacity: 0.65;
+}
+.slit-boat { position: absolute; top: 1px; display: flex; align-items: center; gap: 6px; white-space: nowrap; }
+.slit-name { font-size: 0.8rem; }
+.slit-st { font-size: 0.75rem; color: var(--text-dim); }
+.slit-note { margin-top: 8px; font-size: 0.7rem; color: var(--text-dim); }
+.place-badge { font-size: 0.7rem; border-radius: 4px; padding: 1px 6px; background: var(--border); color: var(--text); }
+.place-badge.place-1 { background: #ffd60a; color: #3a2c00; font-weight: bold; }
+.place-badge.place-2 { background: #c0c7d1; color: #222; font-weight: bold; }
+.place-badge.place-3 { background: #c77b30; color: #fff; font-weight: bold; }
+
 /* 結果 */
 .result-box { margin-top: 18px; padding: 12px; background: #16324f; border: 1px solid var(--accent); border-radius: 8px; }
 .result-box h3 { font-size: 1rem; color: var(--accent2); margin-bottom: 8px; }
